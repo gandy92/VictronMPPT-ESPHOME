@@ -211,6 +211,7 @@ class VictronComponent : public uart::UARTDevice, public Component {
 
  protected:
   void publish_frame_();
+  void publish_next_();
   void handle_value_();
   void publish_state_(binary_sensor::BinarySensor *binary_sensor, const bool &state);
   void publish_state_(sensor::Sensor *sensor, float value);
@@ -295,6 +296,7 @@ class VictronComponent : public uart::UARTDevice, public Component {
   std::string label_;
   std::string value_;
   std::string frame_buffer_;
+  std::string publish_buffer_;
   uint32_t last_transmission_{0};
   uint32_t last_publish_{0};
   uint32_t throttle_{0};

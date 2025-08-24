@@ -169,6 +169,10 @@ void VictronComponent::loop() {
       }
     }
   }
+
+  if (!publish_buffer_.empty()) {
+    publish_next_();
+  }
 }
 
 static std::string charging_mode_text(int value) {
@@ -733,6 +737,7 @@ static std::string off_reason_text(uint32_t mask) {
 }
 
 void VictronComponent::publish_frame_() {
+  // move frame_buffer_ to publish_buffer_ for deferred publishing
   if (checksum_ != 0) {
     if (validate_checksum_) {
       ESP_LOGW(TAG, "Dropping frame due to checksum error");
@@ -746,25 +751,44 @@ void VictronComponent::publish_frame_() {
   if (now - this->last_publish_ < this->throttle_) {
     return;
   }
-  this->last_publish_ = now;
 
-  size_t last = 0;
-  size_t next = 0;
-  while ((next = frame_buffer_.find("\r\n", last)) != std::string::npos) {
-    std::string item = frame_buffer_.substr(last, next - last);
-    last = next + 2;
-    if (item.empty()) {
-      continue;
-    }
-    size_t dpos = item.find('\t');
-    if (dpos == std::string::npos) {
-      continue;
-    }
-    label_ = item.substr(0, dpos);
-    value_ = item.substr(dpos + 1);
-    ESP_LOGD(TAG, "Handle %s value %s", label_.c_str(), value_.c_str());
-    handle_value_();
+  if (!publish_buffer_.empty()) {
+    ESP_LOGW(TAG, "New Frame data available but publish buffer is not empty. Consider more throttling");
+    // TODO: maybe instead clear unpublished readings?
+    return;
   }
+
+  last_publish_ = now;
+  publish_buffer_.append(frame_buffer_);
+  ESP_LOGD(TAG, "Buffer w/ %d chars queued for publishing", frame_buffer_.length());
+  frame_buffer_.clear();
+}
+
+void VictronComponent::publish_next_() {
+  // call from loop to only publish one sensor at a time
+  if (publish_buffer_.empty()) {
+    return;
+  }
+  size_t next = 0;
+  if ((next = publish_buffer_.find("\r\n", 0)) == std::string::npos) {
+    return;
+  }
+
+  std::string item = publish_buffer_.substr(0, next);
+  publish_buffer_.erase(0, next + 2);
+
+  if (item.empty()) {
+    return;
+  }
+  size_t dpos = item.find('\t');
+  if (dpos == std::string::npos) {
+    return;
+  }
+
+  label_ = item.substr(0, dpos);
+  value_ = item.substr(dpos + 1);
+  ESP_LOGD(TAG, "Handle %s value %s", label_.c_str(), value_.c_str());
+  handle_value_();
 }
 
 void VictronComponent::handle_value_() {
